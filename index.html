@@ -1,0 +1,1408 @@
+<!DOCTYPE html>
+<html lang="ms">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Jelajah Ayat Tunggal - Pengembaraan Bahasa Melayu</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;600;700;800&display=swap" rel="stylesheet">
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Canvas Confetti -->
+    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
+
+    <!-- MediaPipe Hands & Camera Utils for Gesture Recognition -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+
+    <!-- React & React DOM -->
+    <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
+    <!-- Babel for Inline JSX -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+    <style>
+        body {
+            font-family: 'Fredoka', 'Plus Jakarta Sans', sans-serif;
+            background-color: #f0fdf4;
+            user-select: none;
+        }
+        .font-sans-custom {
+            font-family: 'Plus Jakarta Sans', sans-serif;
+        }
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #f1f5f9;
+            border-radius: 8px;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #a7f3d0;
+            border-radius: 8px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #34d399;
+        }
+        .train-pulse {
+            animation: pulse-light 2s infinite;
+        }
+        @keyframes pulse-light {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+        }
+        #hand-pointer {
+            pointer-events: none;
+            position: fixed;
+            z-index: 9999;
+            transition: transform 0.05s linear;
+        }
+    </style>
+</head>
+<body class="bg-slate-900 text-slate-800 min-h-screen flex flex-col justify-between overflow-x-hidden">
+    <div id="root"></div>
+
+    <!-- Firebase SDK Modules -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, setDoc, getDoc, updateDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'jelajah-ayat-tunggal-default';
+        const firebaseConfig = typeof __firebase_config !== 'undefined' 
+            ? JSON.parse(__firebase_config) 
+            : { apiKey: "demo-key", authDomain: "demo.firebaseapp.com", projectId: "demo-project" };
+
+        let app, db, auth;
+        try {
+            app = initializeApp(firebaseConfig);
+            db = getFirestore(app);
+            auth = getAuth(app);
+        } catch(e) {
+            console.warn("Firebase initialized in fallback mode:", e);
+        }
+
+        window.fbInstance = { app, db, auth, appId };
+    </script>
+
+    <!-- Main React Application -->
+    <script type="text/babel">
+        const { useState, useEffect, useRef } = React;
+
+        const DEFAULT_STATION2_QUESTIONS = [
+            { 
+                id: 's2_1', 
+                image: "https://images.unsplash.com/photo-1517649763962-0c623266010b?w=500&auto=format&fit=crop&q=60",
+                S: "Ali", 
+                K: "bermain", 
+                O: "bola", 
+                P: "di padang", 
+                blanks: ["K", "O"],
+                options: ["bermain", "bola", "nasi", "membaca", "kasut"],
+                hint: "Apakah yang sedang dilakukan oleh Ali dengan bola di padang?"
+            },
+            { 
+                id: 's2_2', 
+                image: "https://images.unsplash.com/photo-1556910103-1c02745aae4d?w=500&auto=format&fit=crop&q=60",
+                S: "Ibu", 
+                K: "memasak", 
+                O: "sup ayam", 
+                P: "di dapur", 
+                blanks: ["K", "O"],
+                options: ["memasak", "sup ayam", "buku", "menendang", "kereta"],
+                hint: "Apakah tindakan Ibu di dapur?"
+            },
+            { 
+                id: 's2_3', 
+                image: "https://images.unsplash.com/photo-1512820790803-83ca734da794?w=500&auto=format&fit=crop&q=60",
+                S: "Siti", 
+                K: "membaca", 
+                O: "buku cerita", 
+                P: "di perpustakaan", 
+                blanks: ["K", "O"],
+                options: ["membaca", "buku cerita", "padang", "menyiram", "baju"],
+                hint: "Apakah yang dibaca oleh Siti di perpustakaan?"
+            },
+            { 
+                id: 's2_4', 
+                image: "https://images.unsplash.com/photo-1520340356584-f9917d1eea6f?w=500&auto=format&fit=crop&q=60",
+                S: "Ayah", 
+                K: "mencuci", 
+                O: "kereta", 
+                P: "di halaman rumah", 
+                blanks: ["K", "O"],
+                options: ["mencuci", "kereta", "memasak", "pokok", "tidur"],
+                hint: "Apa perbuatan Ayah terhadap kereta di halaman rumah?"
+            },
+            { 
+                id: 's2_5', 
+                image: "https://images.unsplash.com/photo-1585320806297-9794b3e4eeae?w=500&auto=format&fit=crop&q=60",
+                S: "Kakak", 
+                K: "menyiram", 
+                O: "pokok bunga", 
+                P: "pada setiap petang", 
+                blanks: ["K", "O"],
+                options: ["menyiram", "pokok bunga", "nasi", "menunggang", "meja"],
+                hint: "Apa yang disiram oleh Kakak pada petang hari?"
+            }
+        ];
+
+        const STATION1_MISSIONS = [
+            { id: 1, title: "Misi 1: Main Bola", image: "https://images.unsplash.com/photo-1517649763962-0c623266010b?w=500&auto=format&fit=crop&q=60", words: ["bermain", "Ali", "bola", "di", "padang."], answer: ["Ali", "bermain", "bola", "di", "padang."], hint: "Mulakan dengan nama orang (Ali)." },
+            { id: 2, title: "Misi 2: Minum Jus", image: "https://images.unsplash.com/photo-1551024709-8f23befc6f87?w=500&auto=format&fit=crop&q=60", words: ["minum", "Amir", "jus", "sedang", "oren."], answer: ["Amir", "sedang", "minum", "jus", "oren."], hint: "Siapa? Amir..." },
+            { id: 3, title: "Misi 3: Memasak Sup", image: "https://images.unsplash.com/photo-1556910103-1c02745aae4d?w=500&auto=format&fit=crop&q=60", words: ["memasak", "ayam.", "Ibu", "sup"], answer: ["Ibu", "memasak", "sup", "ayam."], hint: "Subjek utama ialah Ibu." },
+            { id: 4, title: "Misi 4: Membaca Buku", image: "https://images.unsplash.com/photo-1512820790803-83ca734da794?w=500&auto=format&fit=crop&q=60", words: ["membaca", "Siti", "buku", "di", "perpustakaan."], answer: ["Siti", "membaca", "buku", "di", "perpustakaan."], hint: "Mulakan dengan Siti..." },
+            { id: 5, title: "Misi 5: Mencuci Kereta", image: "https://images.unsplash.com/photo-1520340356584-f9917d1eea6f?w=500&auto=format&fit=crop&q=60", words: ["mencuci", "Ayah", "kereta", "di", "halaman", "rumah."], answer: ["Ayah", "mencuci", "kereta", "di", "halaman", "rumah."], hint: "Ayah buat apa pada kereta?" },
+            { id: 6, title: "Misi 6: Membersihkan Kelas", image: "https://images.unsplash.com/photo-1580582932707-520aed937b7b?w=500&auto=format&fit=crop&q=60", words: ["kelas.", "membersihkan", "Murid-murid"], answer: ["Murid-murid", "membersihkan", "kelas."], hint: "Murid-murid..." },
+            { id: 7, title: "Misi 7: Menanam Pokok", image: "https://images.unsplash.com/photo-1585320806297-9794b3e4eeae?w=500&auto=format&fit=crop&q=60", words: ["pokok", "Pak Cik", "menanam", "bunga."], answer: ["Pak Cik", "menanam", "pokok", "bunga."], hint: "Siapa yang menanam?" },
+            { id: 8, title: "Misi 8: Menunggang Basikal", image: "https://images.unsplash.com/photo-1485965120184-e220f721d03e?w=500&auto=format&fit=crop&q=60", words: ["basikal", "Adik", "menunggang", "baharu."], answer: ["Adik", "menunggang", "basikal", "baharu."], hint: "Adik menunggang apa?" },
+            { id: 9, title: "Misi 9: Melukis Gambar", image: "https://images.unsplash.com/photo-1513364776144-60967b0f800f?w=500&auto=format&fit=crop&q=60", words: ["pemandangan.", "Kakak", "melukis", "gambar"], answer: ["Kakak", "melukis", "gambar", "pemandangan."], hint: "Kakak melukis..." },
+            { id: 10, title: "Misi 10: Kucing Tidur", image: "https://images.unsplash.com/photo-1514888286974-6c03e2ca1dba?w=500&auto=format&fit=crop&q=60", words: ["tidur", "Comel", "Kucing", "di", "tilam."], answer: ["Kucing", "Comel", "tidur", "di", "tilam."], hint: "Susun: Kucing Comel..." }
+        ];
+
+        const STATION3_QUESTIONS = [
+            { id: 's3_1', title: "Soalan 1", image: "https://images.unsplash.com/photo-1514888286974-6c03e2ca1dba?w=600&auto=format&fit=crop&q=60", alt: "Seekor kucing sedang tidur di atas kerusi", sampleAnswers: ["Kucing tidur di atas kerusi.", "Kucing itu sedang tidur.", "Seekor kucing tidur di kerusi."], hint: "Nyatakan subjek (kucing) dan apa yang dibuatnya (tidur di atas kerusi)." },
+            { id: 's3_2', title: "Soalan 2", image: "https://images.unsplash.com/photo-1556910103-1c02745aae4d?w=600&auto=format&fit=crop&q=60", alt: "Seorang ibu memasak di dapur", sampleAnswers: ["Ibu memasak di dapur.", "Ibu sedang memasak makanan.", "Seorang ibu sedang memasak."], hint: "Siapa dalam gambar? Ibu sedang buat apa?" },
+            { id: 's3_3', title: "Soalan 3", image: "https://images.unsplash.com/photo-1585320806297-9794b3e4eeae?w=600&auto=format&fit=crop&q=60", alt: "Seorang budak perempuan menyiram pokok", sampleAnswers: ["Budak perempuan itu menyiram pokok.", "Siti menyiram pokok bunga.", "Budak itu menyiram pokok di taman."], hint: "Sebutkan perbuatan menyiram pokok." },
+            { id: 's3_4', title: "Soalan 4", image: "https://images.unsplash.com/photo-1532996122724-e3c354a0b15b?w=600&auto=format&fit=crop&q=60", alt: "Seorang budak membuang sampah ke dalam tong sampah", sampleAnswers: ["Budak itu membuang sampah.", "Ali membuang sampah ke dalam tong sampah.", "Seorang lelaki membuang sampah."], hint: "Sebutkan tindakan membuang sampah." },
+            { id: 's3_5', title: "Soalan 5", image: "https://images.unsplash.com/photo-1506784983877-45594efa4cbe?w=600&auto=format&fit=crop&q=60", alt: "Seorang datuk sedang membaca surat khabar", sampleAnswers: ["Datuk membaca surat khabar.", "Datuk sedang membaca surat khabar.", "Seorang datuk membaca surat khabar di kerusi."], hint: "Siapa lelaki tua itu dan apa bahan bacaannya?" }
+        ];
+
+        const playAudioFx = (type) => {
+            try {
+                const ctx = new (window.AudioContext || window.webkitAudioContext)();
+                const osc = ctx.createOscillator();
+                const gain = ctx.createGain();
+                osc.connect(gain);
+                gain.connect(ctx.destination);
+
+                if (type === 'correct') {
+                    osc.frequency.setValueAtTime(523.25, ctx.currentTime);
+                    osc.frequency.setValueAtTime(659.25, ctx.currentTime + 0.1);
+                    osc.frequency.setValueAtTime(783.99, ctx.currentTime + 0.2);
+                    gain.gain.setValueAtTime(0.2, ctx.currentTime);
+                    gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.5);
+                    osc.start();
+                    osc.stop(ctx.currentTime + 0.5);
+                } else if (type === 'wrong') {
+                    osc.frequency.setValueAtTime(300, ctx.currentTime);
+                    osc.frequency.setValueAtTime(220, ctx.currentTime + 0.15);
+                    gain.gain.setValueAtTime(0.2, ctx.currentTime);
+                    gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.4);
+                    osc.start();
+                    osc.stop(ctx.currentTime + 0.4);
+                } else if (type === 'click') {
+                    osc.frequency.setValueAtTime(400, ctx.currentTime);
+                    gain.gain.setValueAtTime(0.08, ctx.currentTime);
+                    gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.08);
+                    osc.start();
+                    osc.stop(ctx.currentTime + 0.08);
+                }
+            } catch (e) {}
+        };
+
+        function App() {
+            const [playerName, setPlayerName] = useState('');
+            const [playerCode, setPlayerCode] = useState('');
+            const [isStarted, setIsStarted] = useState(false);
+            const [currentStation, setCurrentStation] = useState(1);
+            const [completedStations, setCompletedStations] = useState([]);
+            const [score, setScore] = useState(0);
+            const [badges, setBadges] = useState([]);
+            const [answeredQuestions, setAnsweredQuestions] = useState({});
+            
+            const [soundEnabled, setSoundEnabled] = useState(true);
+            const [handControlActive, setHandControlActive] = useState(false);
+            const [handPosition, setHandPosition] = useState({ x: -100, y: -100, isPinching: false, detected: false });
+
+            const [totalSeconds, setTotalSeconds] = useState(0);
+            const [isTimerRunning, setIsTimerRunning] = useState(false);
+
+            const [showTeacherPanel, setShowTeacherPanel] = useState(false);
+            const [station2Questions, setStation2Questions] = useState(() => {
+                const saved = localStorage.getItem('s2_custom_questions');
+                return saved ? JSON.parse(saved) : DEFAULT_STATION2_QUESTIONS;
+            });
+            const [skopGuide, setSkopGuide] = useState(() => {
+                return localStorage.getItem('skop_guide') || "Teknik SKOP: S (Subjek) - Siapa?, K (Kata Kerja) - Buat apa?, O (Objek) - Apa mangsa/benda?, P (Peluang/Penerangan) - Di mana/Bila?";
+            });
+
+            const [modalMessage, setModalMessage] = useState(null);
+
+            const wasPinchingRef = useRef(false);
+            useEffect(() => {
+                if (!handControlActive || !handPosition.detected) return;
+
+                if (handPosition.isPinching && !wasPinchingRef.current) {
+                    const el = document.elementFromPoint(handPosition.x, handPosition.y);
+                    if (el) {
+                        el.click();
+                        playAudioFx('click');
+                    }
+                }
+                wasPinchingRef.current = handPosition.isPinching;
+            }, [handPosition, handControlActive]);
+
+            const playFx = (type) => {
+                if (soundEnabled) playAudioFx(type);
+            };
+
+            useEffect(() => {
+                let interval = null;
+                if (isTimerRunning) {
+                    interval = setInterval(() => {
+                        setTotalSeconds(prev => prev + 1);
+                    }, 1000);
+                } else {
+                    clearInterval(interval);
+                }
+                return () => clearInterval(interval);
+            }, [isTimerRunning]);
+
+            const saveProgress = async (updatedData = {}) => {
+                const dataToSave = {
+                    playerName,
+                    playerCode,
+                    currentStation,
+                    completedStations,
+                    score,
+                    badges,
+                    totalSeconds,
+                    answeredQuestions,
+                    lastUpdated: new Date().toISOString(),
+                    ...updatedData
+                };
+
+                try {
+                    localStorage.setItem('jat_active_session', JSON.stringify(dataToSave));
+                } catch (e) {}
+
+                if (window.fbInstance && window.fbInstance.db && playerCode) {
+                    try {
+                        const { db, appId } = window.fbInstance;
+                        const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'players', playerCode);
+                        await setDoc(docRef, dataToSave, { merge: true });
+                    } catch (err) {
+                        console.warn("Could not save to Firestore:", err);
+                    }
+                }
+            };
+
+            useEffect(() => {
+                const savedSession = localStorage.getItem('jat_active_session');
+                if (savedSession) {
+                    try {
+                        const data = JSON.parse(savedSession);
+                        if (data.playerName && data.playerCode) {
+                            setPlayerName(data.playerName);
+                            setPlayerCode(data.playerCode);
+                            setCurrentStation(data.currentStation || 1);
+                            setCompletedStations(data.completedStations || []);
+                            setScore(data.score || 0);
+                            setBadges(data.badges || []);
+                            setTotalSeconds(data.totalSeconds || 0);
+                            setAnsweredQuestions(data.answeredQuestions || {});
+                        }
+                    } catch (e) {}
+                }
+            }, []);
+
+            const handleStartGame = (e) => {
+                e.preventDefault();
+                if (!playerName.trim()) {
+                    alert("Sila masukkan nama anda!");
+                    return;
+                }
+                
+                let code = playerCode;
+                if (!code) {
+                    code = 'JAT-' + Math.floor(1000 + Math.random() * 9000);
+                    setPlayerCode(code);
+                }
+
+                setIsStarted(true);
+                setIsTimerRunning(true);
+                playFx('click');
+                saveProgress({ playerName, playerCode: code, isStarted: true });
+            };
+
+            const handleResumeWithCode = async (codeToResume) => {
+                if (!codeToResume) return;
+                if (window.fbInstance && window.fbInstance.db) {
+                    try {
+                        const { db, appId } = window.fbInstance;
+                        const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'players', codeToResume.trim());
+                        const docSnap = await getDoc(docRef);
+                        if (docSnap.exists()) {
+                            const data = docSnap.data();
+                            setPlayerName(data.playerName);
+                            setPlayerCode(data.playerCode);
+                            setCurrentStation(data.currentStation || 1);
+                            setCompletedStations(data.completedStations || []);
+                            setScore(data.score || 0);
+                            setBadges(data.badges || []);
+                            setTotalSeconds(data.totalSeconds || 0);
+                            setAnsweredQuestions(data.answeredQuestions || {});
+                            setIsStarted(true);
+                            setIsTimerRunning(true);
+                            playFx('correct');
+                            setModalMessage({ title: "Selamat Kembali!", body: `Rekod untuk ${data.playerName} telah dimuatkan.`, type: 'info' });
+                            return;
+                        }
+                    } catch (e) {
+                        console.error(e);
+                    }
+                }
+                setModalMessage({ title: "Kod Tidak Ditemui", body: "Sila semak kod sambungan atau mulakan pengembaraan baharu.", type: 'warning' });
+            };
+
+            const addQuestionScore = (qId) => {
+                if (!answeredQuestions[qId]) {
+                    setAnsweredQuestions(prev => ({ ...prev, [qId]: true }));
+                    setScore(prev => prev + 10);
+                    return true;
+                }
+                return false;
+            };
+
+            const handleStationComplete = (stationNum, badgeName) => {
+                playFx('correct');
+                confetti({ particleCount: 100, spread: 70, origin: { y: 0.6 } });
+                
+                let newCompleted = [...completedStations];
+                if (!newCompleted.includes(stationNum)) {
+                    newCompleted.push(stationNum);
+                    setCompletedStations(newCompleted);
+                }
+
+                let newBadges = [...badges];
+                if (badgeName && !newBadges.includes(badgeName)) {
+                    newBadges.push(badgeName);
+                    setBadges(newBadges);
+                }
+
+                let nextSt = stationNum + 1;
+                if (nextSt > 4) nextSt = 4;
+                setCurrentStation(nextSt);
+
+                if (nextSt === 4) {
+                    setIsTimerRunning(false);
+                    if (!newBadges.includes("Penjelajah Bahasa")) {
+                        newBadges.push("Penjelajah Bahasa");
+                        setBadges(newBadges);
+                    }
+                }
+
+                saveProgress({ completedStations: newCompleted, badges: newBadges, currentStation: nextSt });
+            };
+
+            const handleRestartGame = () => {
+                setCurrentStation(1);
+                setCompletedStations([]);
+                setScore(0);
+                setBadges([]);
+                setTotalSeconds(0);
+                setAnsweredQuestions({});
+                setIsTimerRunning(true);
+                saveProgress({ currentStation: 1, completedStations: [], score: 0, badges: [], totalSeconds: 0, answeredQuestions: {} });
+            };
+
+            const formatTime = (secs) => {
+                const m = Math.floor(secs / 60);
+                const s = secs % 60;
+                return `${m < 10 ? '0' : ''}${m}:${s < 10 ? '0' : ''}${s}`;
+            };
+
+            return (
+                <div className="min-h-screen flex flex-col justify-between bg-slate-900 text-white relative">
+                    {handControlActive && handPosition.detected && (
+                        <div 
+                            id="hand-pointer"
+                            style={{ left: `${handPosition.x}px`, top: `${handPosition.y}px` }}
+                            className={`w-8 h-8 rounded-full border-4 ${handPosition.isPinching ? 'bg-amber-400 border-red-500 scale-125' : 'bg-emerald-400 border-white'} shadow-lg transform -translate-x-1/2 -translate-y-1/2 flex items-center justify-center transition-all duration-75`}
+                        >
+                            <span className="text-xs font-bold text-slate-900">{handPosition.isPinching ? '✊' : '✋'}</span>
+                        </div>
+                    )}
+
+                    <header className="bg-slate-800/95 backdrop-blur border-b border-slate-700 px-4 py-3 sticky top-0 z-40 flex flex-wrap justify-between items-center gap-2">
+                        <div className="flex items-center space-x-3">
+                            <span className="text-3xl">🚂</span>
+                            <div>
+                                <h1 className="font-extrabold text-lg md:text-xl tracking-wide text-emerald-400">Jelajah Ayat Tunggal</h1>
+                                <p className="text-xs text-slate-400 hidden sm:block">Pengembaraan Bahasa Sekolah Rendah</p>
+                            </div>
+                        </div>
+
+                        {isStarted && (
+                            <div className="flex items-center space-x-4 bg-slate-900/80 px-4 py-1.5 rounded-full border border-slate-700 text-sm">
+                                <div className="flex items-center space-x-1 text-amber-400">
+                                    <i className="fa-solid fa-user"></i>
+                                    <span className="font-semibold">{playerName}</span>
+                                </div>
+                                <div className="flex items-center space-x-1 text-yellow-400">
+                                    <i className="fa-solid fa-star"></i>
+                                    <span className="font-bold">{score} Mata</span>
+                                </div>
+                                <div className="flex items-center space-x-1 text-cyan-400">
+                                    <i className="fa-solid fa-clock"></i>
+                                    <span className="font-mono">{formatTime(totalSeconds)}</span>
+                                </div>
+                            </div>
+                        )}
+
+                        <div className="flex items-center space-x-2">
+                            <button 
+                                onClick={() => setHandControlActive(!handControlActive)} 
+                                className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition ${handControlActive ? 'bg-emerald-500 text-slate-950' : 'bg-slate-700 text-slate-300 hover:bg-slate-600'}`}
+                                title="Kawal guna Kamera & Isyarat Tangan"
+                            >
+                                <i className="fa-solid fa-hand"></i>
+                                <span className="hidden md:inline">{handControlActive ? 'Kamera Aktif' : 'Mod Kamera'}</span>
+                            </button>
+
+                            <button 
+                                onClick={() => setSoundEnabled(!soundEnabled)} 
+                                className="p-2 bg-slate-700 hover:bg-slate-600 rounded-lg text-slate-300"
+                                title={soundEnabled ? "Matikan Bunyi" : "Hidupkan Bunyi"}
+                            >
+                                <i className={`fa-solid ${soundEnabled ? 'fa-volume-high text-emerald-400' : 'fa-volume-xmark text-rose-400'}`}></i>
+                            </button>
+
+                            <button 
+                                onClick={() => setShowTeacherPanel(!showTeacherPanel)}
+                                className="p-2 bg-indigo-600 hover:bg-indigo-500 rounded-lg text-white text-xs font-semibold flex items-center gap-1"
+                                title="Tetapan Guru"
+                            >
+                                <i className="fa-solid fa-chalkboard-user"></i>
+                                <span className="hidden lg:inline">Guru</span>
+                            </button>
+                        </div>
+                    </header>
+
+                    {handControlActive && (
+                        <HandTracker 
+                            onHandMove={(x, y, isPinching, detected) => {
+                                setHandPosition({ x, y, isPinching, detected });
+                            }} 
+                        />
+                    )}
+
+                    <main className="flex-1 max-w-6xl w-full mx-auto p-4 md:p-6 flex flex-col justify-center">
+                        {!isStarted ? (
+                            <StartScreen 
+                                playerName={playerName} 
+                                setPlayerName={setPlayerName} 
+                                playerCode={playerCode}
+                                setPlayerCode={setPlayerCode}
+                                onStart={handleStartGame}
+                                onResume={handleResumeWithCode}
+                            />
+                        ) : (
+                            <>
+                                <RouteMap 
+                                    currentStation={currentStation} 
+                                    completedStations={completedStations} 
+                                    onSelectStation={(st) => {
+                                        if (completedStations.includes(st) || st === currentStation || completedStations.includes(st - 1)) {
+                                            setCurrentStation(st);
+                                        } else {
+                                            setModalMessage({ title: "Stesen Berkunci", body: "Sila selesaikan stesen sebelumnya terlebih dahulu!", type: "warning" });
+                                        }
+                                    }}
+                                />
+
+                                <div className="mt-6">
+                                    {currentStation === 1 && (
+                                        <Station1 
+                                            missions={STATION1_MISSIONS}
+                                            handPosition={handPosition}
+                                            soundEnabled={soundEnabled}
+                                            addQuestionScore={addQuestionScore}
+                                            onComplete={() => handleStationComplete(1, "Penyusun Kata")}
+                                        />
+                                    )}
+
+                                    {currentStation === 2 && (
+                                        <Station2 
+                                            questions={station2Questions}
+                                            skopGuide={skopGuide}
+                                            soundEnabled={soundEnabled}
+                                            addQuestionScore={addQuestionScore}
+                                            onComplete={() => handleStationComplete(2, "Pelengkap Ayat")}
+                                        />
+                                    )}
+
+                                    {currentStation === 3 && (
+                                        <Station3 
+                                            questions={STATION3_QUESTIONS}
+                                            soundEnabled={soundEnabled}
+                                            addQuestionScore={addQuestionScore}
+                                            onComplete={() => handleStationComplete(3, "Pencipta Ayat")}
+                                        />
+                                    )}
+
+                                    {currentStation === 4 && (
+                                        <FinalDestination 
+                                            playerName={playerName}
+                                            score={score}
+                                            badges={badges}
+                                            totalSeconds={totalSeconds}
+                                            formatTime={formatTime}
+                                            onRestart={handleRestartGame}
+                                        />
+                                    )}
+                                </div>
+                            </>
+                        )}
+                    </main>
+
+                    {showTeacherPanel && (
+                        <TeacherPanel 
+                            questions={station2Questions}
+                            setQuestions={(q) => {
+                                setStation2Questions(q);
+                                localStorage.setItem('s2_custom_questions', JSON.stringify(q));
+                            }}
+                            skopGuide={skopGuide}
+                            setSkopGuide={(g) => {
+                                setSkopGuide(g);
+                                localStorage.setItem('skop_guide', g);
+                            }}
+                            onResetDefault={() => {
+                                setStation2Questions(DEFAULT_STATION2_QUESTIONS);
+                                localStorage.removeItem('s2_custom_questions');
+                                setSkopGuide("Teknik SKOP: S (Subjek) - Siapa?, K (Kata Kerja) - Buat apa?, O (Objek) - Apa mangsa/benda?, P (Peluang/Penerangan) - Di mana/Bila?");
+                                localStorage.removeItem('skop_guide');
+                            }}
+                            onClose={() => setShowTeacherPanel(false)}
+                        />
+                    )}
+
+                    {modalMessage && (
+                        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+                            <div className="bg-slate-800 border border-slate-700 rounded-2xl p-6 max-w-md w-full text-center shadow-2xl">
+                                <div className="text-4xl mb-3">
+                                    {modalMessage.type === 'warning' ? '🔒' : 'ℹ️'}
+                                </div>
+                                <h3 className="text-xl font-bold text-white mb-2">{modalMessage.title}</h3>
+                                <p className="text-slate-300 text-sm mb-6">{modalMessage.body}</p>
+                                <button 
+                                    onClick={() => setModalMessage(null)}
+                                    className="w-full py-3 bg-emerald-500 hover:bg-emerald-400 font-bold text-slate-950 rounded-xl transition"
+                                >
+                                    Faham & Teruskan
+                                </button>
+                            </div>
+                        </div>
+                    )}
+
+                    <footer className="bg-slate-950 border-t border-slate-800 py-3 text-center text-xs text-slate-500">
+                        Jelajah Ayat Tunggal &copy; {new Date().getFullYear()} — Modul Pendidikan Bahasa Melayu Interaktif Sekolah Rendah.
+                    </footer>
+                </div>
+            );
+        }
+
+        function StartScreen({ playerName, setPlayerName, playerCode, setPlayerCode, onStart, onResume }) {
+            const [inputCode, setInputCode] = useState('');
+
+            return (
+                <div className="max-w-xl mx-auto w-full bg-slate-800 border border-slate-700 rounded-3xl p-6 md:p-8 shadow-2xl text-center">
+                    <div className="inline-block p-4 bg-emerald-500/10 rounded-full mb-4 train-pulse">
+                        <span className="text-6xl">🚂</span>
+                    </div>
+                    <h2 className="text-3xl font-black tracking-tight text-white mb-2">JOM KE KOTA BAHASA!</h2>
+                    <p className="text-emerald-400 font-semibold mb-6">Pengembaraan Menyusun, Melengkapkan & Membina Ayat Tunggal</p>
+
+                    <div className="bg-slate-900/80 border border-slate-700/80 rounded-2xl p-4 text-left text-xs md:text-sm text-slate-300 mb-6 space-y-2">
+                        <div className="flex items-start gap-2">
+                            <span className="text-amber-400 font-bold">1.</span>
+                            <span>Jawab kuiz di setiap 3 stesen mengikut aras kesukaran.</span>
+                        </div>
+                        <div className="flex items-start gap-2">
+                            <span className="text-amber-400 font-bold">2.</span>
+                            <span>Jawab dengan betul untuk meneruskan perjalanan kereta api.</span>
+                        </div>
+                        <div className="flex items-start gap-2">
+                            <span className="text-amber-400 font-bold">3.</span>
+                            <span>Kumpulkan bintang, mata dan lencana pengembaraan.</span>
+                        </div>
+                        <div className="flex items-start gap-2">
+                            <span className="text-amber-400 font-bold">4.</span>
+                            <span>Boleh menggunakan kursor biasa atau mod **Kamera Tangan**!</span>
+                        </div>
+                    </div>
+
+                    <form onSubmit={onStart} className="space-y-4">
+                        <div className="text-left">
+                            <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Nama Pemain *</label>
+                            <input 
+                                type="text"
+                                value={playerName}
+                                onChange={(e) => setPlayerName(e.target.value)}
+                                placeholder="Contoh: Amir / Siti"
+                                required
+                                className="w-full px-4 py-3 bg-slate-900 border border-slate-700 rounded-xl text-white font-semibold focus:outline-none focus:border-emerald-500 transition"
+                            />
+                        </div>
+
+                        <button 
+                            type="submit"
+                            className="w-full py-4 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 font-black text-lg rounded-xl shadow-lg shadow-emerald-500/20 transform hover:-translate-y-0.5 transition active:translate-y-0"
+                        >
+                            🚀 MULA PENGEMBARAAN
+                        </button>
+                    </form>
+
+                    <div className="mt-8 pt-6 border-t border-slate-700 text-left">
+                        <h4 className="text-xs font-bold text-slate-400 uppercase mb-2">Sambung Permainan Terdahulu?</h4>
+                        <div className="flex gap-2">
+                            <input 
+                                type="text"
+                                value={inputCode}
+                                onChange={(e) => setInputCode(e.target.value)}
+                                placeholder="Masukkan Kod (Cth: JAT-1234)"
+                                className="flex-1 px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-xs text-white uppercase focus:outline-none focus:border-indigo-500"
+                            />
+                            <button 
+                                type="button"
+                                onClick={() => onResume(inputCode)}
+                                className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-lg text-xs font-bold transition"
+                            >
+                                Sambung
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+
+        function RouteMap({ currentStation, completedStations, onSelectStation }) {
+            const stations = [
+                { id: 1, name: "Stesen 1", label: "Susun Kata", icon: "🧩" },
+                { id: 2, name: "Stesen 2", label: "Lengkap Ayat", icon: "✏️" },
+                { id: 3, name: "Stesen 3", label: "Cipta Ayat", icon: "🖼️" },
+                { id: 4, name: "Destinasi", label: "Kota Bahasa", icon: "🏰" }
+            ];
+
+            return (
+                <div className="bg-slate-800/90 border border-slate-700 rounded-2xl p-4 md:p-6 shadow-xl relative overflow-hidden">
+                    <div className="text-xs font-bold uppercase text-slate-400 mb-4 tracking-wider">Laluan Kereta Api Pengembaraan</div>
+                    
+                    <div className="relative flex items-center justify-between z-10">
+                        <div className="absolute top-1/2 left-0 right-0 h-2 bg-slate-700 -translate-y-1/2 rounded-full z-0"></div>
+                        <div 
+                            className="absolute top-1/2 left-0 h-2 bg-emerald-500 -translate-y-1/2 rounded-full z-0 transition-all duration-700"
+                            style={{ width: `${((currentStation - 1) / 3) * 100}%` }}
+                        ></div>
+
+                        {stations.map((st) => {
+                            const isDone = completedStations.includes(st.id);
+                            const isActive = currentStation === st.id;
+                            const isLocked = !isDone && !isActive && (st.id > 1 && !completedStations.includes(st.id - 1));
+
+                            return (
+                                <button
+                                    key={st.id}
+                                    onClick={() => onSelectStation(st.id)}
+                                    className={`relative z-10 flex flex-col items-center group transition focus:outline-none`}
+                                >
+                                    <div className={`w-12 h-12 md:w-14 md:h-14 rounded-2xl flex items-center justify-center text-xl md:text-2xl font-bold shadow-lg transition-all transform ${
+                                        isActive 
+                                            ? 'bg-amber-400 text-slate-950 ring-4 ring-amber-400/40 scale-110 train-pulse' 
+                                            : isDone 
+                                                ? 'bg-emerald-500 text-white' 
+                                                : 'bg-slate-700 text-slate-400'
+                                    }`}>
+                                        {isActive ? '🚂' : isDone ? '✅' : isLocked ? '🔒' : st.icon}
+                                    </div>
+                                    <span className={`mt-2 text-xs md:text-sm font-bold ${isActive ? 'text-amber-400' : isDone ? 'text-emerald-400' : 'text-slate-400'}`}>
+                                        {st.name}
+                                    </span>
+                                    <span className="text-[10px] text-slate-400 hidden sm:block">{st.label}</span>
+                                </button>
+                            );
+                        })}
+                    </div>
+                </div>
+            );
+        }
+
+        function Station1({ missions, handPosition, soundEnabled, addQuestionScore, onComplete }) {
+            const [missionIndex, setMissionIndex] = useState(0);
+            const [currentWords, setCurrentWords] = useState([]);
+            const [userSentence, setUserSentence] = useState([]);
+            const [feedback, setFeedback] = useState(null);
+
+            const currentMission = missions[missionIndex];
+
+            useEffect(() => {
+                if (currentMission) {
+                    const shuffled = [...currentMission.words].sort(() => Math.random() - 0.5);
+                    setCurrentWords(shuffled);
+                    setUserSentence([]);
+                    setFeedback(null);
+                }
+            }, [missionIndex]);
+
+            const handleSelectWord = (word, index) => {
+                if (feedback?.isCorrect) return;
+                setUserSentence(prev => [...prev, word]);
+                setCurrentWords(prev => prev.filter((_, i) => i !== index));
+            };
+
+            const handleUndo = () => {
+                if (userSentence.length === 0 || feedback?.isCorrect) return;
+                const lastWord = userSentence[userSentence.length - 1];
+                setUserSentence(prev => prev.slice(0, -1));
+                setCurrentWords(prev => [...prev, lastWord]);
+            };
+
+            const handleClear = () => {
+                if (feedback?.isCorrect) return;
+                setCurrentWords([...currentMission.words].sort(() => Math.random() - 0.5));
+                setUserSentence([]);
+            };
+
+            const handleCheckAnswer = () => {
+                const isCorrect = JSON.stringify(userSentence) === JSON.stringify(currentMission.answer);
+                if (isCorrect) {
+                    addQuestionScore(`st1_m${currentMission.id}`);
+                    setFeedback({
+                        isCorrect: true,
+                        text: "AYAT BETUL! Bagus, susunan perkataan kamu tepat dan gramatis."
+                    });
+                } else {
+                    setFeedback({
+                        isCorrect: false,
+                        text: "Usaha yang baik! Cuba semak semula susunan perkataan mengikut urutan yang betul."
+                    });
+                }
+            };
+
+            const handleNextMission = () => {
+                if (missionIndex < missions.length - 1) {
+                    setMissionIndex(prev => prev + 1);
+                } else {
+                    onComplete();
+                }
+            };
+
+            return (
+                <div className="bg-slate-800 border border-slate-700 rounded-3xl p-5 md:p-8 shadow-2xl">
+                    <div className="flex justify-between items-center mb-4">
+                        <span className="px-3 py-1 bg-emerald-500/20 text-emerald-400 font-bold text-xs rounded-full border border-emerald-500/30">
+                            STESEN 1: SUSUN KATA (ARAS MUDAH)
+                        </span>
+                        <span className="text-xs font-bold text-slate-400">
+                            Misi {missionIndex + 1} / {missions.length}
+                        </span>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-center mb-6">
+                        <div className="md:col-span-1 rounded-2xl overflow-hidden border-2 border-slate-700 aspect-video md:aspect-square relative">
+                            <img 
+                                src={currentMission.image} 
+                                alt={currentMission.title}
+                                className="w-full h-full object-cover"
+                            />
+                            <div className="absolute bottom-0 inset-x-0 bg-slate-900/80 backdrop-blur p-2 text-center text-xs text-white font-medium">
+                                {currentMission.title}
+                            </div>
+                        </div>
+
+                        <div className="md:col-span-2 space-y-4">
+                            <h3 className="text-base font-bold text-slate-200">
+                                Arahan: Susun perkataan di bawah supaya menjadi ayat tunggal yang betul.
+                            </h3>
+
+                            <div className="bg-slate-900 border-2 border-dashed border-slate-600 rounded-2xl p-4 min-h-[80px] flex flex-wrap items-center gap-2">
+                                <span className="text-xs font-bold text-slate-500 uppercase tracking-widest w-full mb-1">Ruang Ayat:</span>
+                                {userSentence.length === 0 ? (
+                                    <span className="text-slate-500 italic text-sm">Klik atau tunjuk perkataan di bawah untuk menyusun...</span>
+                                ) : (
+                                    userSentence.map((word, i) => (
+                                        <span key={i} className="px-3 py-2 bg-emerald-500 text-slate-950 font-bold rounded-xl shadow text-sm md:text-base">
+                                            {word}
+                                        </span>
+                                    ))
+                                )}
+                            </div>
+
+                            <div className="flex flex-wrap gap-2 pt-2">
+                                {currentWords.map((word, idx) => (
+                                    <button
+                                        key={idx}
+                                        onClick={() => handleSelectWord(word, idx)}
+                                        className="px-4 py-2.5 bg-slate-700 hover:bg-slate-600 active:bg-emerald-600 text-white font-bold rounded-xl text-sm md:text-base border border-slate-600 shadow transition transform hover:scale-105"
+                                    >
+                                        {word}
+                                    </button>
+                                ))}
+                            </div>
+
+                            <div className="flex flex-wrap items-center gap-3 pt-4 border-t border-slate-700">
+                                <button 
+                                    onClick={handleUndo}
+                                    disabled={userSentence.length === 0 || feedback?.isCorrect}
+                                    className="px-4 py-2 bg-slate-700 hover:bg-slate-600 disabled:opacity-40 text-xs font-bold text-slate-300 rounded-xl transition"
+                                >
+                                    ↩️ UNDO
+                                </button>
+                                <button 
+                                    onClick={handleClear}
+                                    disabled={userSentence.length === 0 || feedback?.isCorrect}
+                                    className="px-4 py-2 bg-slate-700 hover:bg-slate-600 disabled:opacity-40 text-xs font-bold text-slate-300 rounded-xl transition"
+                                >
+                                    🗑️ PADAM JAWAPAN
+                                </button>
+                                <button 
+                                    onClick={handleCheckAnswer}
+                                    disabled={userSentence.length === 0 || feedback?.isCorrect}
+                                    className="ml-auto px-6 py-2.5 bg-emerald-500 hover:bg-emerald-400 disabled:opacity-40 text-slate-950 font-extrabold text-sm rounded-xl shadow-lg transition"
+                                >
+                                    🎯 SEMAK JAWAPAN
+                                </button>
+                            </div>
+
+                            {feedback && (
+                                <div className={`p-4 rounded-xl text-sm font-bold flex items-center justify-between ${feedback.isCorrect ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40' : 'bg-rose-500/20 text-rose-300 border border-rose-500/40'}`}>
+                                    <div>
+                                        <span>{feedback.isCorrect ? '✅ ' : '❌ '}</span>
+                                        <span>{feedback.text}</span>
+                                    </div>
+                                    {feedback.isCorrect && (
+                                        <button 
+                                            onClick={handleNextMission}
+                                            className="px-4 py-2 bg-emerald-500 text-slate-950 font-black rounded-lg text-xs hover:bg-emerald-400 shadow transition"
+                                        >
+                                            {missionIndex < missions.length - 1 ? 'Misi Seterusnya ➡️' : 'Selesai Stesen 1 🏆'}
+                                        </button>
+                                    )}
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+
+        function Station2({ questions, skopGuide, soundEnabled, addQuestionScore, onComplete }) {
+            const [qIndex, setQIndex] = useState(0);
+            const [userSelections, setUserSelections] = useState([]);
+            const [feedback, setFeedback] = useState(null);
+            const [showSkop, setShowSkop] = useState(false);
+
+            const currentQ = questions[qIndex] || questions[0];
+            const requiredCount = currentQ.blanks.length;
+
+            useEffect(() => {
+                setUserSelections([]);
+                setFeedback(null);
+            }, [qIndex]);
+
+            const handleSelectOption = (opt) => {
+                if (feedback?.isCorrect) return;
+                if (userSelections.length < requiredCount && !userSelections.includes(opt)) {
+                    setUserSelections(prev => [...prev, opt]);
+                }
+            };
+
+            const handleUndo = () => {
+                if (feedback?.isCorrect) return;
+                setUserSelections(prev => prev.slice(0, -1));
+                setFeedback(null);
+            };
+
+            const handleClear = () => {
+                if (feedback?.isCorrect) return;
+                setUserSelections([]);
+                setFeedback(null);
+            };
+
+            const handleCheckAnswer = () => {
+                if (userSelections.length < requiredCount) return;
+
+                const expected = currentQ.blanks.map(bKey => currentQ[bKey]);
+                const isCorrect = JSON.stringify(userSelections) === JSON.stringify(expected);
+
+                if (isCorrect) {
+                    addQuestionScore(currentQ.id);
+                    setFeedback({
+                        isCorrect: true,
+                        text: "SYABAS! Jawapan anda mengikut struktur SKOP dengan tepat!"
+                    });
+                } else {
+                    setFeedback({
+                        isCorrect: false,
+                        text: "Hampir tepat! Cuba semak semula Kata Kerja (K) dan Objek (O) yang sesuai."
+                    });
+                }
+            };
+
+            const handleNextQuestion = () => {
+                if (qIndex < questions.length - 1) {
+                    setQIndex(prev => prev + 1);
+                } else {
+                    onComplete();
+                }
+            };
+
+            const renderSkopLine = (key, label, fullText) => {
+                const isBlank = currentQ.blanks.includes(key);
+                if (!isBlank) {
+                    return (
+                        <div className="flex items-center gap-3 bg-slate-900/60 p-3 rounded-xl border border-slate-700/60">
+                            <span className="w-8 h-8 rounded-lg bg-emerald-500/20 text-emerald-400 font-black flex items-center justify-center text-sm border border-emerald-500/30">
+                                {key}
+                            </span>
+                            <span className="text-slate-400 font-bold text-xs w-24">{label}:</span>
+                            <span className="font-extrabold text-white text-base md:text-lg">{fullText}</span>
+                        </div>
+                    );
+                }
+
+                const blankIndex = currentQ.blanks.indexOf(key);
+                const filledValue = userSelections[blankIndex];
+
+                return (
+                    <div className="flex items-center gap-3 bg-slate-900 p-3 rounded-xl border-2 border-dashed border-slate-700">
+                        <span className="w-8 h-8 rounded-lg bg-amber-500/20 text-amber-400 font-black flex items-center justify-center text-sm border border-amber-500/30">
+                            {key}
+                        </span>
+                        <span className="text-slate-400 font-bold text-xs w-24">{label}:</span>
+                        <span className={`font-black text-base md:text-lg px-4 py-1 rounded-lg ${
+                            filledValue 
+                                ? (feedback ? (feedback.isCorrect ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40' : 'bg-rose-500/20 text-rose-300 border border-rose-500/40') : 'bg-cyan-500 text-slate-950') 
+                                : 'text-slate-500 italic'
+                        }`}>
+                            {filledValue || "________________"}
+                        </span>
+                    </div>
+                );
+            };
+
+            return (
+                <div className="bg-slate-800 border border-slate-700 rounded-3xl p-5 md:p-8 shadow-2xl">
+                    <div className="flex justify-between items-center mb-4">
+                        <span className="px-3 py-1 bg-cyan-500/20 text-cyan-400 font-bold text-xs rounded-full border border-cyan-500/30">
+                            STESEN 2: LENGKAP AYAT SKOP (ARAS SEDERHANA)
+                        </span>
+                        <div className="flex items-center gap-2">
+                            <span className="text-xs font-bold text-slate-400">Soalan {qIndex + 1} / {questions.length}</span>
+                            <button 
+                                onClick={() => setShowSkop(!showSkop)}
+                                className="px-3 py-1 bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 text-xs font-bold rounded-lg"
+                            >
+                                📘 Panduan SKOP
+                            </button>
+                        </div>
+                    </div>
+
+                    {showSkop && (
+                        <div className="mb-4 p-4 bg-indigo-950/60 border border-indigo-500/30 rounded-2xl text-xs md:text-sm text-indigo-200">
+                            <strong>📘 Panduan SKOP Guru:</strong> {skopGuide}
+                        </div>
+                    )}
+
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-center mb-6">
+                        <div className="md:col-span-1 rounded-2xl overflow-hidden border-2 border-slate-700 aspect-video md:aspect-square relative">
+                            <img src={currentQ.image} alt="Rangsangan SKOP" className="w-full h-full object-cover" />
+                            <div className="absolute bottom-0 inset-x-0 bg-slate-900/80 p-2 text-center text-xs text-white font-medium">
+                                Gambar Rangsangan
+                            </div>
+                        </div>
+
+                        <div className="md:col-span-2 space-y-3">
+                            <h3 className="text-sm font-bold text-slate-300 mb-1">
+                                Arahan: Pilih perkataan yang betul untuk melengkapkan carta SKOP.
+                            </h3>
+
+                            {renderSkopLine("S", "Subjek (Siapa)", currentQ.S)}
+                            {renderSkopLine("K", "Kata Kerja (Buat apa)", currentQ.K)}
+                            {renderSkopLine("O", "Objek (Benda/Mangsa)", currentQ.O)}
+                            {renderSkopLine("P", "Peluang (Di mana/Bila)", currentQ.P)}
+
+                            <div className="pt-2">
+                                <span className="text-xs font-bold text-slate-400 block mb-2">Pilihan Perkataan:</span>
+                                <div className="flex flex-wrap gap-2">
+                                    {currentQ.options.map((opt, oIdx) => {
+                                        const isSelected = userSelections.includes(opt);
+                                        return (
+                                            <button
+                                                key={oIdx}
+                                                onClick={() => handleSelectOption(opt)}
+                                                disabled={isSelected || feedback?.isCorrect}
+                                                className={`px-4 py-2 rounded-xl text-sm font-bold border transition transform hover:scale-105 ${
+                                                    isSelected 
+                                                        ? 'bg-slate-700 text-slate-500 border-slate-700 cursor-not-allowed opacity-50' 
+                                                        : 'bg-cyan-600 hover:bg-cyan-500 text-white border-cyan-400 shadow-lg'
+                                                }`}
+                                            >
+                                                {opt}
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+
+                            <div className="flex flex-wrap items-center gap-3 pt-4 border-t border-slate-700">
+                                <button 
+                                    onClick={handleUndo}
+                                    disabled={userSelections.length === 0 || feedback?.isCorrect}
+                                    className="px-4 py-2 bg-slate-700 hover:bg-slate-600 disabled:opacity-40 text-xs font-bold text-slate-300 rounded-xl transition"
+                                >
+                                    ↩️ UNDO
+                                </button>
+                                <button 
+                                    onClick={handleClear}
+                                    disabled={userSelections.length === 0 || feedback?.isCorrect}
+                                    className="px-4 py-2 bg-slate-700 hover:bg-slate-600 disabled:opacity-40 text-xs font-bold text-slate-300 rounded-xl transition"
+                                >
+                                    🗑️ PADAM JAWAPAN
+                                </button>
+                                <button 
+                                    onClick={handleCheckAnswer}
+                                    disabled={userSelections.length < requiredCount || feedback?.isCorrect}
+                                    className="ml-auto px-6 py-2.5 bg-emerald-500 hover:bg-emerald-400 disabled:opacity-40 text-slate-950 font-extrabold text-sm rounded-xl shadow-lg transition"
+                                >
+                                    🎯 SEMAK JAWAPAN
+                                </button>
+                            </div>
+
+                            {feedback && (
+                                <div className={`p-4 rounded-xl text-sm font-bold flex items-center justify-between ${feedback.isCorrect ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40' : 'bg-rose-500/20 text-rose-300 border border-rose-500/40'}`}>
+                                    <div>
+                                        <span>{feedback.isCorrect ? '✅ ' : '❌ '}</span>
+                                        <span>{feedback.text}</span>
+                                    </div>
+                                    {feedback.isCorrect && (
+                                        <button 
+                                            onClick={handleNextQuestion}
+                                            className="px-4 py-2 bg-emerald-500 text-slate-950 font-black rounded-lg text-xs hover:bg-emerald-400 shadow transition"
+                                        >
+                                            {qIndex < questions.length - 1 ? 'Misi Seterusnya ➡️' : 'Selesai Stesen 2 🏆'}
+                                        </button>
+                                    )}
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+
+        function Station3({ questions, soundEnabled, addQuestionScore, onComplete }) {
+            const [qIndex, setQIndex] = useState(0);
+            const [inputSentence, setInputSentence] = useState('');
+            const [evaluating, setEvaluating] = useState(false);
+            const [feedback, setFeedback] = useState(null);
+
+            const currentQ = questions[qIndex];
+
+            const handleEvaluateSentence = async () => {
+                if (!inputSentence.trim()) return;
+
+                setEvaluating(true);
+                setFeedback(null);
+
+                const trimmed = inputSentence.trim();
+
+                try {
+                    const apiKey = ""; 
+                    if (apiKey) {
+                        const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${apiKey}`;
+                        const systemPrompt = "Anda ialah penilai Bahasa Melayu sekolah rendah. Nilaikan sama ada ayat murid berikut munasabah dengan gambar, merupakan ayat tunggal yang lengkap dengan subjek dan predikat.";
+                        const userPrompt = `Gambar: ${currentQ.alt}. Ayat murid: "${trimmed}". Adakah ayat ini betul dan gramatis? Balas dalam format JSON: {"isCorrect": boolean, "feedback": "penjelasan mesra murid 1-2 ayat"}`;
+
+                        const res = await fetch(apiUrl, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                contents: [{ parts: [{ text: userPrompt }] }],
+                                systemInstruction: { parts: [{ text: systemPrompt }] }
+                            })
+                        });
+
+                        const data = await res.json();
+                        const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text;
+                        
+                        if (rawText) {
+                            const parsed = JSON.parse(rawText.replace(/```json|```/g, '').trim());
+                            setFeedback(parsed);
+                            if (parsed.isCorrect) addQuestionScore(currentQ.id);
+                            setEvaluating(false);
+                            return;
+                        }
+                    }
+                } catch (e) {
+                    console.warn("AI evaluation skipped or failed, using local rule-based evaluation.");
+                }
+
+                // Local Rule-Based Fallback
+                const words = trimmed.split(/\s+/);
+                const isSingleClause = words.length >= 3 && !trimmed.toLowerCase().includes('dan') && !trimmed.toLowerCase().includes('kerana');
+                const matchesSample = currentQ.sampleAnswers.some(sa => trimmed.toLowerCase().includes(sa.toLowerCase().replace('.', '')));
+                
+                if (isSingleClause || matchesSample) {
+                    addQuestionScore(currentQ.id);
+                    setFeedback({
+                        isCorrect: true,
+                        feedback: "Syabas! Ayat kamu ialah ayat tunggal yang gramatis dan sesuai dengan gambar."
+                    });
+                } else {
+                    setFeedback({
+                        isCorrect: false,
+                        feedback: "Hampir tepat! Pastikan ayat kamu mempunyai subjek (siapa) dan predikat (perbuatan) serta munasabah dengan gambar."
+                    });
+                }
+                setEvaluating(false);
+            };
+
+            const handleNext = () => {
+                if (qIndex < questions.length - 1) {
+                    setQIndex(prev => prev + 1);
+                    setInputSentence('');
+                    setFeedback(null);
+                } else {
+                    onComplete();
+                }
+            };
+
+            return (
+                <div className="bg-slate-800 border border-slate-700 rounded-3xl p-5 md:p-8 shadow-2xl">
+                    <div className="flex justify-between items-center mb-4">
+                        <span className="px-3 py-1 bg-amber-500/20 text-amber-400 font-bold text-xs rounded-full border border-amber-500/30">
+                            STESEN 3: CIPTA AYAT (ARAS SUKAR)
+                        </span>
+                        <span className="text-xs font-bold text-slate-400">Soalan {qIndex + 1} / {questions.length}</span>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-center">
+                        <div className="rounded-2xl overflow-hidden border-2 border-slate-700 aspect-video md:aspect-square relative">
+                            <img src={currentQ.image} alt={currentQ.alt} className="w-full h-full object-cover" />
+                            <div className="absolute bottom-0 inset-x-0 bg-slate-900/80 p-2 text-center text-xs text-slate-300">
+                                {currentQ.alt}
+                            </div>
+                        </div>
+
+                        <div className="space-y-4">
+                            <h3 className="text-base font-bold text-slate-200">
+                                Arahan: Lihat gambar. Tulis SATU ayat tunggal yang lengkap.
+                            </h3>
+
+                            <div className="space-y-2">
+                                <label className="block text-xs font-bold text-slate-400">Ruang Menaip Ayat:</label>
+                                <textarea
+                                    value={inputSentence}
+                                    onChange={(e) => setInputSentence(e.target.value)}
+                                    placeholder="Tulis ayat anda di sini (Contoh: Kucing itu tidur di kerusi.)"
+                                    rows={3}
+                                    className="w-full p-4 bg-slate-900 border border-slate-700 rounded-xl text-white font-medium focus:outline-none focus:border-amber-500 text-sm md:text-base"
+                                />
+                            </div>
+
+                            <div className="flex justify-between items-center">
+                                <span className="text-xs text-amber-300">💡 {currentQ.hint}</span>
+                                <button
+                                    onClick={handleEvaluateSentence}
+                                    disabled={evaluating || !inputSentence.trim()}
+                                    className="px-6 py-2.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-sm rounded-xl shadow transition disabled:opacity-50"
+                                >
+                                    {evaluating ? 'Menyemak...' : '🎯 SEMAK AYAT'}
+                                </button>
+                            </div>
+
+                            {feedback && (
+                                <div className={`p-4 rounded-xl text-sm font-semibold border ${feedback.isCorrect ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40' : 'bg-rose-500/20 text-rose-300 border-rose-500/40'}`}>
+                                    <p className="mb-3">{feedback.isCorrect ? '✅ ' : '❌ '} {feedback.feedback}</p>
+                                    {feedback.isCorrect && (
+                                        <button 
+                                            onClick={handleNext}
+                                            className="px-4 py-2 bg-emerald-500 text-slate-950 font-bold rounded-lg text-xs"
+                                        >
+                                            {qIndex < questions.length - 1 ? 'Soalan Seterusnya ➡️' : 'Ke Kota Bahasa 🏰'}
+                                        </button>
+                                    )}
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+
+        function FinalDestination({ playerName, score, badges, totalSeconds, formatTime, onRestart }) {
+            return (
+                <div className="max-w-2xl mx-auto w-full bg-slate-800 border border-slate-700 rounded-3xl p-6 md:p-10 text-center shadow-2xl">
+                    <div className="text-6xl mb-3 animate-bounce">🏰</div>
+                    <h2 className="text-3xl font-black text-amber-400 mb-2">TAHNIAH, {playerName}!</h2>
+                    <p className="text-emerald-400 font-bold text-lg mb-6">Kamu Berjaya Tiba di Kota Bahasa!</p>
+
+                    <div className="grid grid-cols-3 gap-4 mb-8">
+                        <div className="p-4 bg-slate-900 rounded-2xl border border-slate-700">
+                            <span className="text-2xl">⭐</span>
+                            <div className="text-xl font-black text-amber-400 mt-1">{score} / 90</div>
+                            <div className="text-[10px] uppercase text-slate-400 font-bold">Jumlah Mata</div>
+                        </div>
+                        <div className="p-4 bg-slate-900 rounded-2xl border border-slate-700">
+                            <span className="text-2xl">⏱️</span>
+                            <div className="text-xl font-black text-cyan-400 mt-1">{formatTime(totalSeconds)}</div>
+                            <div className="text-[10px] uppercase text-slate-400 font-bold">Masa Bermain</div>
+                        </div>
+                        <div className="p-4 bg-slate-900 rounded-2xl border border-slate-700">
+                            <span className="text-2xl">🏆</span>
+                            <div className="text-xl font-black text-emerald-400 mt-1">{badges.length}</div>
+                            <div className="text-[10px] uppercase text-slate-400 font-bold">Lencana Diterima</div>
+                        </div>
+                    </div>
+
+                    <div className="mb-8">
+                        <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-3">Lencana Pengembaraan Anda:</h4>
+                        <div className="flex flex-wrap justify-center gap-3">
+                            {badges.map((b, i) => (
+                                <span key={i} className="px-4 py-2 bg-amber-500/20 border border-amber-500/40 text-amber-300 font-bold text-xs rounded-xl flex items-center gap-2">
+                                    <span>🏅</span> {b}
+                                </span>
+                            ))}
+                        </div>
+                    </div>
+
+                    <p className="text-slate-300 text-sm italic mb-8">
+                        "Kamu telah berlatih menyusun, melengkapkan dan membina ayat tunggal dengan cemerlang!"
+                    </p>
+
+                    <button
+                        onClick={onRestart}
+                        className="px-8 py-4 bg-gradient-to-r from-emerald-500 to-teal-500 text-slate-950 font-black text-base rounded-xl shadow-lg hover:from-emerald-400 hover:to-teal-400 transition"
+                    >
+                        🔄 MAIN SEMULA PENGEMBARAAN
+                    </button>
+                </div>
+            );
+        }
+
+        function TeacherPanel({ questions, setQuestions, skopGuide, setSkopGuide, onResetDefault, onClose }) {
+            return (
+                <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+                    <div className="bg-slate-800 border border-slate-700 rounded-3xl max-w-3xl w-full max-h-[90vh] flex flex-col shadow-2xl overflow-hidden">
+                        <div className="p-5 border-b border-slate-700 flex justify-between items-center bg-slate-900">
+                            <h3 className="font-extrabold text-lg text-emerald-400 flex items-center gap-2">
+                                <span>👨‍🏫</span> TETAPAN GURU & PENGURUSAN BAHAN
+                            </h3>
+                            <button onClick={onClose} className="text-slate-400 hover:text-white font-bold text-xl">&times;</button>
+                        </div>
+
+                        <div className="p-6 overflow-y-auto space-y-6 flex-1">
+                            <div>
+                                <label className="block text-xs font-bold text-slate-400 uppercase mb-2">Panduan Teknik SKOP Guru:</label>
+                                <textarea
+                                    value={skopGuide}
+                                    onChange={(e) => setSkopGuide(e.target.value)}
+                                    rows={3}
+                                    className="w-full p-3 bg-slate-900 border border-slate-700 rounded-xl text-white text-xs font-medium focus:outline-none focus:border-indigo-500"
+                                />
+                            </div>
+
+                            <div>
+                                <div className="flex justify-between items-center mb-3">
+                                    <label className="text-xs font-bold text-slate-400 uppercase">Senarai Soalan Stesen 2 ({questions.length}):</label>
+                                    <button 
+                                        onClick={onResetDefault}
+                                        className="text-xs text-rose-400 hover:underline font-bold"
+                                    >
+                                        Pulihkan Soalan Asal
+                                    </button>
+                                </div>
+                                <div className="space-y-3 max-h-60 overflow-y-auto pr-2">
+                                    {questions.map((q, i) => (
+                                        <div key={q.id} className="p-3 bg-slate-900 border border-slate-700 rounded-xl text-xs space-y-1">
+                                            <div className="font-bold text-cyan-400">Soalan {i + 1}</div>
+                                            <div className="text-slate-200">S: {q.S} | K: {q.K} | O: {q.O} | P: {q.P}</div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="p-4 border-t border-slate-700 bg-slate-900 flex justify-end">
+                            <button onClick={onClose} className="px-6 py-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold rounded-xl text-xs">
+                                Simpan & Tutup
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+
+        function HandTracker({ onHandMove }) {
+            const videoRef = useRef(null);
+
+            useEffect(() => {
+                let camera = null;
+                const hands = new Hands({
+                    locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+                });
+
+                hands.setOptions({
+                    maxNumHands: 1,
+                    modelComplexity: 1,
+                    minDetectionConfidence: 0.5,
+                    minTrackingConfidence: 0.5
+                });
+
+                hands.onResults((results) => {
+                    if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+                        const landmarks = results.multiHandLandmarks[0];
+                        const indexTip = landmarks[8];
+                        const thumbTip = landmarks[4];
+
+                        const screenX = (1 - indexTip.x) * window.innerWidth;
+                        const screenY = indexTip.y * window.innerHeight;
+
+                        const dx = (indexTip.x - thumbTip.x);
+                        const dy = (indexTip.y - thumbTip.y);
+                        const dist = Math.sqrt(dx * dx + dy * dy);
+                        const isPinching = dist < 0.06;
+
+                        onHandMove(screenX, screenY, isPinching, true);
+                    } else {
+                        onHandMove(-100, -100, false, false);
+                    }
+                });
+
+                if (videoRef.current) {
+                    camera = new Camera(videoRef.current, {
+                        onFrame: async () => {
+                            if (videoRef.current) {
+                                await hands.send({ image: videoRef.current });
+                            }
+                        },
+                        width: 320,
+                        height: 240
+                    });
+                    camera.start();
+                }
+
+                return () => {
+                    if (camera) camera.stop();
+                };
+            }, []);
+
+            return (
+                <div className="fixed bottom-4 right-4 z-40 bg-slate-900/90 border border-slate-700 rounded-2xl p-2 shadow-2xl w-36">
+                    <video ref={videoRef} className="w-full h-24 object-cover rounded-xl" autoPlay muted playsInline />
+                    <div className="text-[10px] text-center text-slate-400 mt-1 font-bold">✋ Kawalan Tangan</div>
+                </div>
+            );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
